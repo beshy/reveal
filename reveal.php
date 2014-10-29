@@ -9,6 +9,7 @@ include '../../PC/init.php';
  *
  * @author beShy <i@beshy.net>
  * @created 2014-10-22 15:33
+ * @lastupdated 2014-10-29 10:42
  */
 Class Reveal
 { // BEGIN class Reveal
@@ -1675,13 +1676,13 @@ Class Reveal
 
 		$L->trace('cache each video infos.');
 		$a=array();
-		$timeoffset = 0;
+		//$timeoffset = 0;
 
 		foreach ($s as $i => $infos)
 		{
-			$infos['timeoffset'] = $timeoffset*1000;
+			//$infos['timeoffset'] = $timeoffset*1000;
 			$a[$id.$i.'_infos']=$infos;
-			$timeoffset += $infos['duration'];
+			//$timeoffset += $infos['duration'];
 		}
 
 		$this->setMulti($a, $C['siteCnf']['et_infos']*3, false);
@@ -1807,11 +1808,24 @@ Class Reveal
 				}
 			}
 
+
+			// set timeoffset
+			$timeoffset = 0;
+			foreach ($infos as $_i => $_infos)
+			{
+				$_infos['timeoffset'] = $timeoffset*1000;
+				$timeoffset += $_infos['duration'];
+				$infos[$_i] = $_infos;
+			}
+
+			// set each infos to db
 			$this->cacheEachInfos($infos);
 
+			// {id}_infos
 			$s = array(
 					'total' => $C['total'],
 					'infos' => $infos,
+					'parsefinished' => empty($C['infos_parse_completed']) ? 0 : 1, // flags, check the parse infos processing IS OR NOT finished
 					'id' => $C['id'],
 					'duration' => empty($C['duration']) ? 0 : $C['duration'],
 				);
