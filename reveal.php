@@ -482,7 +482,8 @@ Class Reveal
 
 		$m3u8="";
 		$targetDuration=0;
-		$ts_length = $C['m3u8_ts_length']*1000;
+		$ts_length_max = $C['m3u8_ts_length']*1000;
+		$ts_length = 3000;
 
 		$tsUrlTpl = $C['ts_location'];
 		//$tsKeys = array('{vid}','{idx}','{start}','{length}','{vcspeed}');
@@ -593,6 +594,12 @@ Class Reveal
 						$maxItem--;
 					}
 					
+					// generate small fragments first: 3,4,5,6,7,8,9,10,10...
+					$ts_length += 1000;
+					if ($ts_length > $ts_length_max) {
+						$ts_length = $ts_length_max;
+					}
+
 
 					//$sdur = (int)round($dur/1000);
 					$sdur = round($dur/1000, 3);
@@ -702,6 +709,8 @@ Class Reveal
 
 				// flv
 				//$dbArr[$id.$md['i'].$n.'_pos'] =  '0_0,0_0,'.$so.'_'.$eo.','.$md['time'][0].'_'.$md['time'][1];
+
+				$dbArr[$id.$md['i'].$n.'_pos'] = '0_0,0_0,'.$so.'_'.$eo.','.$md['time'][0].'_'.$md['time'][1].','.$md['pltype'];
 			}
 			else
 			{
@@ -727,11 +736,25 @@ Class Reveal
 
 				// mp4
 				//$dbArr[$id.$md['i'].$n.'_pos'] =  $md['pos'][0].'_'.$md['pos'][1].','.$md['apos'][0].'_'.$md['apos'][1].',0_0,0_0';
+
+				//$dbArr[$id.$md['i'].$n.'_pos'] = $md['pos'][0].'_'.$md['pos'][1].','.$md['apos'][0].'_'.$md['apos'][1].','.$so.'_'.$eo.','.$md['time'][0].'_'.$md['time'][1].','.$md['pltype'];
+				//$dbArr[$id.$md['i'].$n.'_pos'] = $md['pos'][0].'_'.$md['pos'][1].','.$md['apos'][0].'_'.$md['apos'][1].',0_0,0_0,'.$md['pltype'];
+
+				if ( 'merge' === $md['pltype'] ) {
+					$dbArr[$id.$md['i'].$n.'_pos'] = '0_0,0_0,'.$so.'_'.$eo.','.$md['time'][0].'_'.$md['time'][1].','.$md['pltype'];
+				} else {
+					$dbArr[$id.$md['i'].$n.'_pos'] = $md['pos'][0].'_'.$md['pos'][1].','.$md['apos'][0].'_'.$md['apos'][1].',0_0,0_0,'.$md['pltype'];
+				}
+
+				
 			}
 
 			//$dbArr[$id.$md['i'].$n.'_pos'] = $md['pos'][0].'_'.$md['pos'][1].','.$md['apos'][0].'_'.$md['apos'][1];
 			//$dbArr[$id.$md['i'].$n.'_pos'] = $md['pos'][0].'_'.$md['pos'][1].','.$md['apos'][0].'_'.$md['apos'][1].','.$so.'_'.$eo.','.$md['time'][0].'_'.$md['time'][1];
-			$dbArr[$id.$md['i'].$n.'_pos'] = '0_0,0_0,'.$so.'_'.$eo.','.$md['time'][0].'_'.$md['time'][1].','.$md['pltype'];
+
+			//
+			//$dbArr[$id.$md['i'].$n.'_pos'] = '0_0,0_0,'.$so.'_'.$eo.','.$md['time'][0].'_'.$md['time'][1].','.$md['pltype'];
+
 			$tsUrl = str_replace($tsKeys, array($vid, $id, $md['i'], $n, $md['vcspeed'], $C['offline'],$C['bitrate']) , $tsUrlTpl);
 			if ($md['duration']>$targetDuration)
 				$targetDuration = $md['duration'];
@@ -1469,6 +1492,8 @@ Class Reveal
 			}
 		}
 
+		$r['timeoffset'] = 0;
+
 		return $r;
 	} // END parseInfos
 
@@ -1809,13 +1834,16 @@ Class Reveal
 			}
 
 
-			// set timeoffset
-			$timeoffset = 0;
-			foreach ($infos as $_i => $_infos)
-			{
-				$_infos['timeoffset'] = $timeoffset*1000;
-				$timeoffset += $_infos['duration'];
-				$infos[$_i] = $_infos;
+			if ( !empty($C['infos_parse_completed']) ) {
+				// set timeoffset
+				$timeoffset = 0;
+				foreach ($infos as $_i => $_infos)
+				{
+					$_infos['timeoffset'] = $timeoffset*1000;
+					$timeoffset += $_infos['duration'];
+					$infos[$_i] = $_infos;
+					
+				}
 			}
 
 			// set each infos to db
@@ -2510,7 +2538,7 @@ Class Reveal
 
 		$this->updateSrcUrls();
 
-		if ( empty($C['siteCnf']['isRTSP']) ) {
+		if ( empty($C['siteCnf']['isRTSP']) && empty($C['ism3u8']) ) {
 			if ( empty($C['duration']) ) {
 				$this->updateInfos();
 				$this->redirectRtsp();
