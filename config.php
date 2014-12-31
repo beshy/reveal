@@ -111,6 +111,31 @@ return array(
 					'pattern' => '/m3u8test$/i',
 				),
 
+			'live' => array(
+				'pattern' => '/kktv\d*\.com/i',
+				'fakeinfos' => array(
+					'duration' => '7200',
+					'br' => '10240',
+					'fps' => '25',
+					'apl' =>'',
+					'ac' => 'aac',
+					'acodecs' =>'',
+					'asr' => '44100',
+					'achs' => '2 channels (FC)',
+					'abr' => '32',
+					'vc' => 'h264',
+					'vcodecs' =>'',
+					'vw' => '640',
+					'vh' => '480',
+					'tvw' => '368',
+					'tvh' => '208',
+					'uri' => '',
+					'm3u8playlist' => '0',
+					'idx' => array(),
+					'aidx' => array(),
+				),
+			),
+
 			'f' => array(
 					array(
 						'pattern' => '/kktv\d*\.com/i',

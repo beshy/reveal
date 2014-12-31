@@ -932,13 +932,17 @@ Class Reveal
 		
 
 		if ( 'fetch' == $C['srctype'] && empty($C['siteCnf']['fakeinfos']) ) {
+			
+			$C['srcs'] = $C['fetchSrcs'];
+			$C['_srcs'] = $C['_fetchSrcs'];
+			$C['siteCnf']['et_srcs'] = $C['siteCnf']['et_fetch'];
+
 			if (!empty($C['ism3u8'])) {
 				$this->m3u8srcReplaceFetch();
-			}
-			$C['srcs'] = $C['fetchSrcs'];
-			$C['siteCnf']['et_srcs'] = $C['siteCnf']['et_fetch'];	
+			}	
 		} else {
 			$C['srcs'] = $C['origSrcs'];
+			$C['_srcs'] = $C['_origSrcs'];
 		}
 
 	} // END selectSrcs
@@ -1197,6 +1201,8 @@ Class Reveal
 			$this->selectSrcs();
 			$this->cacheEachSrcUrls($C['srcs']);
 			$this->cacheEachSrcUrls($C['origSrcs'], null, '_origsrc');
+
+			$this->cacheEachSrcUrls($C['_srcs'], null, '__src');
 			$this->cacheEachSrcUrls($C['_origSrcs'], null, '__origsrc');
 		
 			$this->cacheSrcs();
@@ -1951,9 +1957,22 @@ Class Reveal
 					$lastBW = $bw;
 				}
 			}
+
+			// TODO: handle multi br HLS
+
+
+			// get simgle br m3u8 infos
 			$L->trace('get playlist: '.$u);
 			$u = $this->formatRelativeUrl($u, $url);
-			return $this->parsePlaylist($u);
+
+			// set simple br url to srcs
+			//return $this->parsePlaylist($u);
+			
+			$infos = $this->parsePlaylist($u);
+
+			// set m3u8 playlist to srcs
+			$infos['srcs'] = array($url);
+			return $infos;
 
 		} else {
 			$this->error("content parse error: \n".$con);
@@ -2063,7 +2082,7 @@ Class Reveal
 		$C =& $this->cnf;
 
 		$con = $C['m3u8src_content'];
-		$GLOBALS['_srcs'] = $C['_fetchSrcs'];
+		$GLOBALS['_srcs'] = $C['srctype'] == 'fetch' ? $C['_fetchSrcs'] : $C['_origSrcs'];
 		$GLOBALS['_srcsi'] = 0;
 
 		$s = preg_replace_callback('/(\#EXTINF\:[\d\.]+[^\s]*\s+)([^\s]+)/i', function ($m) {
@@ -2102,13 +2121,13 @@ Class Reveal
 			$rst[] = '';
 		}
 		foreach ($path_array AS $key => $dir) {
-			if ($dir == '..') {
-				if (end($rst) == '..') {
+			if ($dir === '..') {
+				if (end($rst) === '..') {
 					$rst[] = '..';
 				}elseif(!array_pop($rst)) {
 					$rst[] = '..';
 				}
-			}elseif($dir && $dir != '.') {
+			}elseif( $dir !== '' && $dir !== '.') {
 				$rst[] = $dir;
 			}
 		}
@@ -2116,6 +2135,9 @@ Class Reveal
 			$rst[] = '';
 		}
 		$url .= implode('/', $rst);
+		if ( isset($srcinfo['query']) ) {
+			$url .= '?'.$srcinfo['query'];
+		}
 		return str_replace('\\', '/', $url);
 	} // END formatRelativeUrl
 
@@ -2199,6 +2221,7 @@ Class Reveal
 		}
 		
 
+
 		if ( empty($C['m3u8_fast_response']) ) {
 			$this->updateInfos();
 		} else {
@@ -2213,9 +2236,35 @@ Class Reveal
 			}
 		}
 		
-		
+		if ( !empty($C['medialog']) ) {
+			// for certus
+			if ( !empty($C['infos'][0]) ) {
+				$infos = $C['infos'][0];
+				$mux = empty($infos['mux']) ? '-' : $infos['mux'] ;
+				$res = empty($infos['vw']) ? '-' : $infos['vw'].'x'.$infos['vh'];
+				$br = empty($infos['br']) ? '-' : $infos['br'];
+				$vc = empty($infos['vc']) ? '-' : $infos['vc'];
+				$ac = empty($infos['ac']) ? '-' : $infos['ac'];
+				$fps = empty($infos['fps']) ? '-' : $infos['fps'];
+				//vcodecs
+			} else {
+				$mux = $res = $br = $vc = $ac = $fps = '-';
+			}
+
+			$dur = empty($C['duration']) ? '-' : $C['duration'] ;
+			$size = empty($C['size']) ? '-' : $C['size'] ;
+
+			$ip = empty($_SERVER["HTTP_X_REAL_IP"]) ? (empty($_SERVER['X_FORWARDED_FOR']) ? '-' : $_SERVER['X_FORWARDED_FOR']) : $_SERVER["HTTP_X_REAL_IP"];
+
+			
+			$s = date('d/m/Y:H:i:s ')." $mux $ip $res $br $fps {$vc}:{$ac} $dur $size\n";
+			file_put_contents($C['medialog'], $s, FILE_APPEND);
+		}
 
 		$this->updateM3u8();
+
+
+		
 
 		
 
@@ -2538,7 +2587,7 @@ Class Reveal
 
 		$this->updateSrcUrls();
 
-		if ( empty($C['siteCnf']['isRTSP']) && empty($C['ism3u8']) ) {
+		if ( empty($C['siteCnf']['isRTSP']) ) {
 			if ( empty($C['duration']) ) {
 				$this->updateInfos();
 				$this->redirectRtsp();
