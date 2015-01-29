@@ -64,6 +64,13 @@ return array(
 		'noffps' => array('00000842', '00000243', '00001141'),
 	),
 
+	'checkmux' => false,
+	'muxtosite' => array(
+		'hls' => 'm3u8',
+		//'live hls' => '',
+		'live' => 'live',
+	),
+
 
 	'site_cnf_default' => array(
 			'parsesrc_url' => 'http://127.0.0.1:8080/app/parsesrc/',

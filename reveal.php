@@ -42,9 +42,9 @@ Class Reveal
 
 
 
-		$this->DB=new Couchbase($C['db_url']);
-		if($this->DB->getResultCode() != COUCHBASE_SUCCESS){ 
-			header('HTTP/1.0 500 cache error');
+		@$this->DB=new Couchbase($C['db_url']);
+		if(@$this->DB->getResultCode() !== COUCHBASE_SUCCESS){ 
+			$this->dumpError('cache error', 'cache error');
 			exit;
 		}
 
@@ -52,16 +52,18 @@ Class Reveal
 			$this->DB->setOption(COUCHBASE_OPT_SERIALIZER, COUCHBASE_SERIALIZER_JSON_ARRAY);
 		}
 
-		$this->CDB=new Couchbase($C['cdb'][0],$C['cdb'][1],$C['cdb'][2],$C['cdb'][3]);
+		@$this->CDB=new Couchbase($C['cdb'][0],$C['cdb'][1],$C['cdb'][2],$C['cdb'][3]);
 
-		if($this->CDB->getResultCode() != COUCHBASE_SUCCESS){ 
-			header('HTTP/1.0 500 cache error');
+		if(@$this->CDB->getResultCode() !== COUCHBASE_SUCCESS){ 
+			$this->dumpError('cache error', 'cache error');
 			exit;
 		}
 
-		$this->CDB2=new Couchbase($C['cdb2'][0],$C['cdb2'][1],$C['cdb2'][2],$C['cdb2'][3]);
-
-		
+		@$this->CDB2=new Couchbase($C['cdb2'][0],$C['cdb2'][1],$C['cdb2'][2],$C['cdb2'][3]);
+		if(@$this->CDB2->getResultCode() !== COUCHBASE_SUCCESS){ 
+			$this->dumpError('cache error', 'cache error');
+			exit;
+		}
 
 
 		$tmpDir = $C['vpos_path'];
@@ -175,6 +177,19 @@ Class Reveal
 
 
 	/**
+	 * dumpError
+	 *
+	 * @return	void
+	 */
+	public function dumpError( $str, $e = 'error' )
+	{ // BEGIN dumpError
+		header('HTTP/1.0 500 '.$e);
+		$this->LOG->error($str);
+		exit;
+	} // END dumpError
+
+
+	/**
 	 * set
 	 *
 	 * @return	void
@@ -190,6 +205,9 @@ Class Reveal
 		$r = $db->set($n, $v, $e);
 		$msg = $db->getResultMessage();
 
+		if ($msg != 'Success') {
+			return $this->dumpError("[$msg]set cache value: ".$n." ERROR");
+		}
 
 		if ($log)
 			$this->LOG->trace("[$msg]set cache value: ".$n." (expiry: $e) -> ".print_r($v,true));
@@ -216,6 +234,11 @@ Class Reveal
 
 		$r = $db->setMulti($n, $e);
 		$msg = $db->getResultMessage();
+
+
+		if ($msg != 'Success') {
+			return $this->dumpError("[$msg]set multi cache value: ERROR");
+		}
 
 		if ($log)
 		{
@@ -381,7 +404,33 @@ Class Reveal
 
 
 
+	/**
+	 * checkvideomux
+	 *
+	 * @return	void
+	 */
+	public function checkvideomux( $u )
+	{ // BEGIN checkvideomux
+		$C =& $this->cnf;
+		$L = $this->LOG;
 
+		
+		//video_demux: string filename, string ua, string otherHeaader, int limit
+		$r = video_demux($u, 'gnome-vfs/2.24.2 Firefox/3.5.2', '', 3);
+		$L->trace('video demux: '.$r);
+
+		if ( empty($r) || strpos($r, 'mux') === false ) {
+			return false;
+		}
+
+		foreach ($C['muxtosite'] as $mux => $site) {
+			if ( strpos($r, $mux) !==false ) {
+				return $site;
+			}
+		}
+
+		return false;
+	} // END checkvideomux
 
 
 	/**
@@ -397,18 +446,29 @@ Class Reveal
 
 		$u = $C['url'];
 
+
+		if (empty($C['forceSite']) && !empty($C['checkmux'])) {
+			$C['forceSite'] = $this->checkvideomux($u) ? : false ;
+		}
+
+
 		foreach ($C['site_cnfs'] as $k => $sites)
 		{
+
 			if ( empty($sites[0]) ) {
 				$sites = array($sites);
 			}
+
+			$force = ($C['forceSite'] == $k) ? : false;
 			foreach ($sites as $i=>$site) {
-				if ( ($C['forceSite']==$k && count($sites)==$i+1) || preg_match($site['pattern'], $u, $m)) {
+				$isMatch = $force ? (preg_match($site['pattern'], $u) || count($sites)==$i+1) : preg_match($site['pattern'], $u) ;
+				if ( $isMatch  ) {
 					$C['siteCnf'] = $site + $C['site_cnf_default'];
 					$C['site'] = $k;
 					break 2;
 				}
 			}
+
 		}
 
 		if (empty($C['site']))
@@ -438,7 +498,8 @@ Class Reveal
 		//$this->set($C['vid'].'_params', $C['params'], 2505600, true, 1);
 
 		// show site configs
-		$L->trace('site ['.$C['site'].'] config: '. print_r($C['siteCnf'], true));
+		//$L->trace('site ['.$C['site'].'] config: '. print_r($C['siteCnf'], true));
+		$L->trace('site ['.$C['site'].']');
 	} // END prepareByUrl
 
 
@@ -795,6 +856,43 @@ Class Reveal
 	} // END genDTM3u8String
 
 
+
+	/**
+	 * genM3u8StringByM3u8
+	 *
+	 * @return	void
+	 */
+	public function genM3u8StringByM3u8( $argu=array(), $rargu=array() )
+	{ // BEGIN genM3u8StringByM3u8
+		$L = $this->LOG;
+		$C =& $this->cnf;
+
+		global $tsUrl, $_srcsi;
+
+		$L->trace('generate m3u8 string by m3u8 content.');
+
+		//$tsKeys = array('{vid}','{id}','{idx}','{tsname}','{vcspeed}','{offline}','{bitrate}');
+		$tsKeys = array('{vid}','{id}','{idx}','{vcspeed}','{offline}','{bitrate}');
+		$tsUrl = str_replace($tsKeys, array($C['vid'], $C['id'], 0, 12, $C['offline'], $C['bitrate']) , $C['ts_location']);
+
+		$_srcsi = 0;
+
+		$s = preg_replace_callback('/(\#EXTINF\:[\d\.]+[^\s]*\s+)([^\s]+)/i', function ($m) {
+			global $tsUrl, $_srcsi;
+			return $m[1].str_replace('{tsname}', $_srcsi++, $tsUrl);
+		}, $C['m3u8src_content']);
+
+		$this->set($C['id'].'_ts_location', $tsUrl);
+
+		if ( strpos($C['m3u8src_content'], '#EXT-X-ENDLIST') === false ) {
+			$C['siteCnf']['et_m3u8'] = 4;
+		}
+		
+		return $s;
+	} // END genM3u8StringByM3u8
+
+
+
 	/**
 	 * updateM3u8
 	 *
@@ -832,10 +930,13 @@ Class Reveal
 			// get src urls
 			$L->trace('update m3u8.');
 
-			if ($C['dt'])
+			if ($C['dt']) {
 				$m3u8 = $this->genDTM3u8String();
-			else
+			} else if ( $C['ism3u8'] ) {
+				$m3u8 = $this->genM3u8StringByM3u8();
+			} else {
 				$m3u8 = $this->genM3u8String($idx);
+			}
 
 			if ($isGradual)
 			{
@@ -1351,10 +1452,17 @@ Class Reveal
 
 		$rc = "\nRESULT CONTENTS: ".$fc;
 
+		// check http error
+		if ( !empty($C['checkhttperror']) && preg_match('/HTTP\s+error.*/six', $fc, $m) ) {
+			$this->error("parse video[$i] error: ".$m[0]);
+			return $m[0];
+		}
+
+
 		// get duration, bitrate
 		if (!empty($C['ism3u8'])) {
 			if ( preg_match('/bitrate\s*\:\s*\[(.*?)\]/six', $fc, $m) ) {
-				$r['duration'] = 0;
+				$r['duration'] = $C['duration'];
 				$r['br'] = $m[1]*1024;
 			} else {
 				return 'bitrate parse error.'.$rc;
@@ -1475,10 +1583,12 @@ Class Reveal
 		}
 		else
 		{
-			//$L->trace("[WARNING] video[$i] vc parse error.");
-			//return 'vc parse error.'.$rc;
 			$r['vc'] = 'NONE';
 			$r['vw'] = $r['vh'] = $r['vbr'] = null;
+			if (!empty($C['passaudio'])) {
+				$this->error("parse video[$i] error: vc NONE");
+				return 'vc parse error.';
+			}
 		}
 
 		// get idx position
@@ -1731,16 +1841,20 @@ Class Reveal
 		$L = $this->LOG;
 		$C =& $this->cnf;
 
+		
 
 		// is completed return
 		if ( !empty($C['infos_parse_completed']) && !empty($C['infos']) ) {
 			return $C['infos'];
 		}
 
+		$L->trace('updateInfos('.$idx.')');
+
 		$vid = $C['vid'];
 		$id = $C['id'];
 
 		$sk=is_null($idx)? false : $id.$idx;
+
 
 		$lockKey = $id.'_getInfos_LOCK';
 
@@ -1772,7 +1886,7 @@ Class Reveal
 		//$isCached = (!empty($s) && !empty($ss));
 		$isCached = (
 					 !empty($s) &&
-					 !empty($s0) && 
+					 ( !empty($s0) || !empty($s['infos'][0]['m3u8playlist']) ) && 
 					 !empty($sinfos0) && 
 					 !empty($s['infos'][0]['idx'])
 					);
@@ -1783,18 +1897,24 @@ Class Reveal
 		if ($isCached)
 		{
 			$C['infos'] = $s['infos'];
-			$C['infos_parse_completed'] = (count($C['infos']) == $C['total'] && !empty($C['total']));
-			foreach ($C['infos'] as $_info) {
-				if ( empty($_info['duration']) ) {
-					$C['infos_parse_completed'] = false;
-					break;
+			$C['infos_parse_completed'] = (count($C['infos']) == $C['total'] && !empty($C['total'])) ? true : false;
+
+			// if not hls live mode, then check every seg's duration is exists
+			if ( empty($s['infos'][0]['m3u8playlist']) ) {
+				foreach ($C['infos'] as $_info) {
+					if ( empty($_info['duration']) ) {
+						$C['infos_parse_completed'] = false;
+						break;
+					}
 				}
 			}
+			
 
 			$C['cachedInfos'] = $s;
-			$L->trace('cached, infos parse completed: '.$C['infos_parse_completed']);
+			$L->trace('infos cached, infos parse completed: '.$C['infos_parse_completed'].' '.count($C['infos']).'/'.$C['total']);
 		} else {
-			$L->trace('not cached.');
+			$L->trace('infos not cached.');
+			//$L->trace('s:'.print_r($s, true).'s0:'.print_r($s0, true).'sinfos0:'.print_r($sinfos0, true).'infosidx:'.print_r($s['infos'][0]['idx'], true));
 		}
 
 		
@@ -1908,18 +2028,21 @@ Class Reveal
 		$L = $this->LOG;
 		$C =& $this->cnf;
 
-		$con = Net::curl($u);
+		$o = Net::curlo($u);
 		$L->trace('touch: '.$u);
 
-		if (empty($con)) {
+		if (empty($o)) {
 			$this->error('content empty.');
 			return false;
 		}
 
+		$con = $o['body'];
+		$url = $o['info']['url'];
+
 		if (strpos($con, 'EXT-X-STREAM-INF') === false) {
-			$d = $this->parsePlaylist($u, $con);
+			$d = $this->parsePlaylist($url, $con);
 		} else {
-			$d = $this->parseStream($u, $con);
+			$d = $this->parseStream($url, $con);
 		}
 
 		$C['origSrcs'] = $d['srcs'];
@@ -2059,6 +2182,9 @@ Class Reveal
 			$duration = 0;
 		}
 
+
+		$L->trace('ts count: '.count($_srcs));
+
 		return array(
 			'srcs' => array($url),
 			'_srcs' => $_srcs,
@@ -2082,7 +2208,8 @@ Class Reveal
 		$C =& $this->cnf;
 
 		$con = $C['m3u8src_content'];
-		$GLOBALS['_srcs'] = $C['srctype'] == 'fetch' ? $C['_fetchSrcs'] : $C['_origSrcs'];
+		//$GLOBALS['_srcs'] = $C['srctype'] == 'fetch' ? $C['_fetchSrcs'] : $C['_origSrcs'];
+		$GLOBALS['_srcs'] =  $C['_fetchSrcs'] ;
 		$GLOBALS['_srcsi'] = 0;
 
 		$s = preg_replace_callback('/(\#EXTINF\:[\d\.]+[^\s]*\s+)([^\s]+)/i', function ($m) {
@@ -2091,6 +2218,8 @@ Class Reveal
 		
 		$this->set('m3u8_'.$C['id'], $s, null, false);
 		$C['origSrcs'] = $C['fetchSrcs'] = array( str_replace( array('|id|'), array($C['id']), $C['_m3u8_location'] ) );
+
+		$C['m3u8src_content'] = $s;
 
 		return $s;
 
@@ -2743,7 +2872,7 @@ Class Reveal
 				$C['params'] = array();
 			}
 		} else {
-			$paramsKeys = explode(',', 'quality,seek,profile,offline,dt,pt,ct_location,srctype,site,ptype,seg,hd,uc,cdn,ts_location');
+			$paramsKeys = explode(',', 'quality,seek,profile,offline,dt,pt,ct_location,srctype,site,ptype,seg,hd,uc,cdn,ts_location,checkmux');
 			$C['params'] = array();
 			foreach ($paramsKeys as $key)
 			{
@@ -2764,6 +2893,8 @@ Class Reveal
 		$C['profile'] = empty($rargu['profile']) ? $C['profile'] : $rargu['profile'] ;
 		$C['seek'] = empty($rargu['seek']) ? 'n' : $rargu['seek'] ;
 		$C['srctype'] = empty($rargu['srctype']) ? $C['srctype'] : $rargu['srctype'] ;
+		$C['checkmux'] = empty($rargu['checkmux']) ? (isset($C['checkmux']) ? $C['checkmux']: false) : $rargu['checkmux'] ;
+
 		$C['forceSite'] = empty($rargu['site']) ? '' : $rargu['site'] ;
 		$C['seg'] =  ( isset($rargu['seg']) && is_numeric($rargu['seg']) ) ? (int)$rargu['seg'] : false;
 		$C['hd'] = empty($rargu['hd']) ? '' : $rargu['hd'] ;
