@@ -1,11 +1,7 @@
 <?php
-$ver = empty($_GET['v']) ? 'dev' : $_GET['v'];
 
-switch ($ver)
-{
+include "./reveal.php";
 
-	case 'dev':
-	default:
-		include "reveal.php";
-		break;
-}
+$o=new Reveal();
+$o->main(PC::$I, PC::$RI);
+

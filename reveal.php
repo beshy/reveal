@@ -1,8 +1,13 @@
 <?php
+
+$__DIR__ = dirname(__FILE__);
+
 $PC = array(
-	'CACHE_FILE' => dirname(__FILE__).DIRECTORY_SEPARATOR.'PC.reveal.cache.php',
+	'CACHE_FILE' => $__DIR__.'/PC.reveal.cache.php',
 );
-include '../../PC/init.php';
+
+include_once realpath($__DIR__.'/../../PC/init.php');
+
 
 /**
  * Reveal
@@ -31,14 +36,14 @@ Class Reveal
 	/**
 	 * Constructor
 	 */
-	function __construct( $cnf=array() )
+	function __construct( $cnf=array(), $L=null )
 	{ // BEGIN __constructor
 		$this->__DIR__ = dirname(__FILE__).DIRECTORY_SEPARATOR;
 		$c = include $this->__DIR__.'config.php';
-		$this->cnf = $c + $this->cnf;
+		$this->cnf = $this->cnf + $c + $cnf;
 		$C =& $this->cnf;
 
-		$this->LOG = new Log($C['log_config']);
+		$this->LOG = is_null($L) ? new Log($C['log_config']) : $L;
 
 
 
@@ -83,6 +88,8 @@ Class Reveal
 	{ // BEGIN __destruct
 		$C =& $this->cnf;
 		$L = $this->LOG;
+
+		//$L->trace('reveal __destruct');
 
 		//$this->cacheDatas();
 		$this->unsetLocks();
@@ -548,7 +555,7 @@ Class Reveal
 
 		$tsUrlTpl = $C['ts_location'];
 		//$tsKeys = array('{vid}','{idx}','{start}','{length}','{vcspeed}');
-		$tsKeys = array('{vid}','{id}','{idx}','{tsname}','{vcspeed}','{offline}','{bitrate}');
+		$tsKeys = array('{vid}','{id}','{idx}','{tsname}','{vcspeed}','{offline}','{bitrate}','{duration}');
 
 		$tsmode = empty($C['tsmode']) ? 'pos' : $C['tsmode'];
 		$dbArr = array();
@@ -816,7 +823,7 @@ Class Reveal
 			//
 			//$dbArr[$id.$md['i'].$n.'_pos'] = '0_0,0_0,'.$so.'_'.$eo.','.$md['time'][0].'_'.$md['time'][1].','.$md['pltype'];
 
-			$tsUrl = str_replace($tsKeys, array($vid, $id, $md['i'], $n, $md['vcspeed'], $C['offline'],$C['bitrate']) , $tsUrlTpl);
+			$tsUrl = str_replace($tsKeys, array($vid, $id, $md['i'], $n, $md['vcspeed'], $C['offline'],$C['bitrate'], $md['duration']) , $tsUrlTpl);
 			if ($md['duration']>$targetDuration)
 				$targetDuration = $md['duration'];
 			$m3u8.="#EXTINF:".$md['duration'].",\n".$tsUrl."\n";
@@ -1713,8 +1720,12 @@ Class Reveal
 				$r = $this->parseInfos($f, $i);
 				if (is_string($r))
 				{
-					if ($failedTimes[$i]++>1)
+					if ($failedTimes[$i]++>0)
 					{
+						foreach ($C['pids'] as $_pid) {
+							@exec('kill -9 '.$_pid);
+						}
+
 						$this->error("parse video[$i] error: ".$r);
 						$this->setMulti(array(
 							$C['id'].'_srcs' => '',
@@ -1744,6 +1755,11 @@ Class Reveal
 				
 				$C['infos'][$i] = $r;
 
+				// add overlay text
+				if ( !empty($C['olt']) ) {
+					$C['infos'][$i]['olt'] = $C['olt'];
+				}
+
 				// cache video infos
 				$_infos=$C['infos'][$i];
 				if (!empty($_infos['idx'])) {
@@ -1772,6 +1788,9 @@ Class Reveal
 			// check timeout
 			if ($timeCosted>$C['parse_pos_timeout'])
 			{
+				foreach ($C['pids'] as $_pid) {
+					@exec('kill -9 '.$_pid);
+				}
 				$this->error("parse pos timeout, limit: {$C['parse_pos_timeout']}, spend time: $timeCosted s.");
 				exit;
 			}
@@ -1983,6 +2002,10 @@ Class Reveal
 					'id' => $C['id'],
 					'duration' => empty($C['duration']) ? 0 : $C['duration'],
 				);
+
+			if ( !empty($C['olt']) ) {
+				$s['olt'] = $C['olt'];
+			}
 
 			//$C['cachedInfos'] = $s;
 			$_s = $s;
@@ -3046,5 +3069,4 @@ Class Reveal
 
 } // END class Reveal
 
-$reveal=new Reveal();
-$reveal->main(PC::$I, PC::$RI);
+

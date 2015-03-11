@@ -59,6 +59,7 @@ return array(
 
 	'vid_prefix' => '',
 
+	'olt' => '30:30:TESTS TESTS TESTS',
 
 	'hversion_type' => array(
 		'noffps' => array('00000842', '00000243', '00001141'),
