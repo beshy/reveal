@@ -31,7 +31,7 @@ return array(
 	'tsmode' => 'db',
 
 	// {vid} {idx} {start} {length} {bw}
-	'ts_location' => '{idx}/{tsname}.ts?vs={vcspeed}&ca={offline}',
+	'ts_location' => '{idx}/{tsname}.ts?vs={vcspeed}&ca={offline}&duration={duration}',
 
 	
 	'vcspeed_max_time' => 8,
@@ -56,6 +56,10 @@ return array(
 	'parse_pos_limit' => 4,
 	'parse_pos_each_timeout' => 30,
 	'parse_pos_timeout' => 30,
+
+	'parse_infos_each_timeout' => 5,
+	'parse_infos_retry' => 1,
+	'parse_infos_ua' => 'gnome-vfs/2.24.2 Firefox/3.5.2',
 
 	'vid_prefix' => '',
 
@@ -89,7 +93,7 @@ return array(
 			'et_gradual_m3u8' => 25,
 			'et_ts_pos' => 24400,
 
-			'et_vidxp' => 86400,
+			'et_vidxp' => 186400,
 		),
 
 	'site_cnfs' => array(

@@ -1453,6 +1453,8 @@ Class Reveal
 			if (empty($fc)) {
 				return "file: $f data empty: ".$C['id'].$i.'_tsidxparse_result';
 			}
+		} else if ( !empty($C['use_videoidxparse_module']) ) {
+			$fc = $f;
 		} else if ( !file_exists($f) || !($fc = file_get_contents($f)) ) {
 			return "file: $f empty.";
 		}
@@ -1463,6 +1465,26 @@ Class Reveal
 		if ( !empty($C['checkhttperror']) && preg_match('/HTTP\s+error.*/six', $fc, $m) ) {
 			$this->error("parse video[$i] error: ".$m[0]);
 			return $m[0];
+		}
+
+		// check error
+		if ( strpos($fc, '[ERROR]') !== false ) {
+			return $fc;
+		}
+
+
+		// get video header
+		if ( !empty($C['use_videoidxparse_module']) ) {
+			if ( preg_match('/Header\:(.+)/', $fc, $m) ) {
+				$r['video_header'] = base64_decode($m[1]);
+			} else {
+				$r['video_header'] = false;
+			}
+			
+			if ( $r['video_header'] === false ) {
+				return 'video header get error'.$rc;
+			}
+
 		}
 
 
@@ -1484,6 +1506,7 @@ Class Reveal
 			//$L->trace("[WARNING] video[$i] duration,bitrate parse error.");
 			return 'duration,bitrate parse error.'.$rc;
 		}
+
 
 		if (preg_match('/mux\:([^\s\,]+)/six', $fc, $m)) {
 			$r['mux'] = $m[1];
@@ -1623,11 +1646,6 @@ Class Reveal
 
 
 
-
-
-
-
-
 	/**
 	 * updateInfosAction
 	 *
@@ -1635,6 +1653,172 @@ Class Reveal
 	 */
 	public function updateInfosAction( $idx=null )
 	{ // BEGIN updateInfosAction
+		$L = $this->LOG;
+		$C =& $this->cnf;
+
+
+		if ( function_exists('videoidxparse') ) {
+			$this->updateInfosByModule($idx);
+		} else {
+			$this->updateInfosByShell($idx);
+		}
+
+		ksort($C['infos']);
+
+		// check duration
+		if (is_null($idx) && empty($C['duration'])) {
+			$C['duration'] = 0;
+			foreach ($C['infos'] as $in) {
+				if (empty($in['duration'])) {
+					continue;
+				}
+				$C['duration'] += $in['duration'];
+			}
+			$this->cacheSrcs();
+		}
+
+		return $C['infos'];
+
+	} // END updateInfosAction
+
+
+
+	/**
+	 * updateInfosByModule
+	 *
+	 * @return	void
+	 */
+	public function updateInfosByModule( $idx=null )
+	{ // BEGIN updateInfosByModule
+		$L = $this->LOG;
+		$C =& $this->cnf;
+
+		$vid = $C['vid'];
+		$id = $C['id'];
+		
+		// check is m3u8
+		$srcs = empty($C['ism3u8']) ? $C['srcs'] : $C['_origSrcs'] ;
+		if (!is_null($idx) && !empty($srcs[$idx])) {
+			$_srcs = array();
+			$_srcs[$idx] = $srcs[$idx];
+			$srcs = $_srcs;
+		}
+
+
+		$total = $C['total'];
+
+		if (empty($C['infos']))
+			$C['infos'] = array();
+
+		// srcs which need to parse
+		$prepare_srcs = array();
+
+		// exec each src url
+		for ($i=0; $i < $total; $i++) {
+			if (empty($srcs[$i]) || (!empty($C['infos'][$i]) && isset($C['infos'][$i]['duration']) ) )
+				continue;
+
+			$src = $srcs[$i];
+
+			// check cached
+			$cc = $this->getMulti(array($id.$i.'_infos', $id.$i));
+			if (!empty($cc) && !empty($cc[0]) && isset($cc[0]['duration']) && !empty($cc[1])) {
+				$C['infos'][$i] = $cc[0];
+				$L->trace("{$id}{$i}_infos cached.");
+				continue;
+			}
+
+			$prepare_srcs[$i] = $src;
+		}
+
+		if ( empty($prepare_srcs) ) {
+			return;
+		}
+
+		$_prepare_srcs = implode('#', $prepare_srcs);
+
+		if ( !empty($C['siteCnf']['fakeinfos']) ) {
+			// fakeinfos, do not need parse
+			$rs = $prepare_srcs;
+		} else if (!empty($C['siteCnf']['isTS'])) {
+			// 
+			return $this->updateInfosByShell();
+		} else {
+			//string videoidxparse(string filename, int connect_limit_time, int retry, string useragent, string otherHeader, int keyframe_need)
+			$vip_result = videoidxparse($_prepare_srcs, $C['parse_infos_each_timeout'], $C['parse_infos_retry'], $C['parse_infos_ua'], 'Reveal: 1', 1);
+			if ( empty($vip_result) ) {
+				$this->error('videoidxparse call error.');
+				exit;
+			}
+
+			$rs = explode("##########location:", $vip_result);
+
+			array_shift($rs);
+			if ( empty($rs) || count($rs) != count($prepare_srcs) ) {
+				//$this->error('videoidxparse result error: '.$vip_result);
+				$this->error('videoidxparse result error: '.count($rs)." ".count($prepare_srcs));
+				exit;
+			}
+		}
+
+
+			
+		$C['use_videoidxparse_module'] = true;
+		foreach ($prepare_srcs as $i => $src) {
+			$result = array_shift($rs);
+
+			$r = $this->parseInfos($result, $i);
+			if (is_string($r)) {
+				$this->setMulti(array(
+					$C['id'].'_srcs' => '',
+					$C['vid'].'_srcs' => '',
+					$C['id'].$i.'_src' => '',
+					), 5);
+				$this->error("parse video[$i] error: ".$r);
+				exit;
+			}
+
+			$video_header = $r['video_header'];
+			unset($r['video_header']);
+			$r['uri'] = $C['srcs'][$i];
+				
+			if ($C['ism3u8']) {
+				$r['duration'] = $C['duration'];
+				$r['m3u8playlist'] = true;
+				$r['idx'] = $C['idx'][$i];
+				$r['aidx'] = array();
+			}
+			
+
+			$C['infos'][$i] = $r;
+
+			// add overlay text
+			if ( !empty($C['olt']) ) {
+				$C['infos'][$i]['olt'] = $C['olt'];
+			}
+
+			// cache video infos
+			$_infos=$C['infos'][$i];
+			if (!empty($_infos['idx'])) {
+				$_infos['idx'] = count($_infos['idx']);
+				$_infos['aidx'] = count($_infos['aidx']);
+			}
+			$L->trace($id.$i.'_infos: '.print_r($_infos, true));
+			$this->set($id.$i.'_infos', $C['infos'][$i], $C['siteCnf']['et_infos'], false);
+			$this->set($id.$i, $video_header, $C['siteCnf']['et_vidxp'], false, 2); //use content bucket
+		}
+
+	} // END updateInfosByModule
+
+
+
+	/**
+	 * updateInfosByShell
+	 *
+	 * @return	void
+	 */
+	public function updateInfosByShell( $idx=null )
+	{ // BEGIN updateInfosByShell
 		$L = $this->LOG;
 		$C =& $this->cnf;
 
@@ -1798,23 +1982,7 @@ Class Reveal
 			usleep($sleepMicroTime);
 		}
 
-		ksort($C['infos']);
-
-
-		// check duration
-		if (is_null($idx) && empty($C['duration'])) {
-			$C['duration'] = 0;
-			foreach ($C['infos'] as $in) {
-				if (empty($in['duration'])) {
-					continue;
-				}
-				$C['duration'] += $in['duration'];
-			}
-			$this->cacheSrcs();
-		}
-
-		return $C['infos'];
-	} // END updateInfosAction
+	} // END updateInfosByShell
 
 
 
